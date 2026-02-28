@@ -28,4 +28,12 @@ model Contact {
   createdAt         DateTime        @default(now())
   updatedAt         DateTime        @updatedAt
   deletedAt         DateTime?
+
+  parent Contact? @relation("ContactLink", fields: [linkedId], references: [id])
+  children Contact[] @relation("ContactLink")
+
+  @@index([email])
+  @@index([phoneNumber])
+  @@index([linkedId])
+  @@index([deletedAt])
 }
