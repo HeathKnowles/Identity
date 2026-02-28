@@ -2,7 +2,7 @@
 CREATE TYPE "LinkPrecedence" AS ENUM ('primary', 'secondary');
 
 -- CreateTable
-CREATE TABLE "Contract" (
+CREATE TABLE "Contact" (
     "id" SERIAL NOT NULL,
     "phoneNumber" TEXT,
     "email" TEXT,
@@ -12,5 +12,5 @@ CREATE TABLE "Contract" (
     "updatedAt" TIMESTAMP(3) NOT NULL,
     "deletedAt" TIMESTAMP(3),
 
-    CONSTRAINT "Contract_pkey" PRIMARY KEY ("id")
+    CONSTRAINT "Contact_pkey" PRIMARY KEY ("id")
 );

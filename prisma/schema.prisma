@@ -19,7 +19,7 @@ enum LinkPrecedence {
 }
 
 
-model Contract {
+model Contact {
   id                Int             @id @default(autoincrement())
   phoneNumber       String?
   email             String?
