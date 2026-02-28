@@ -14,107 +14,108 @@ export async function identify(
   email?: string,
   phoneNumber?: string
 ): Promise<IdentifyResponse> {
-  return prisma.$transaction(async (tx) => {
-    const orConditions: { email?: string; phoneNumber?: string }[] = []
 
-    if (email) orConditions.push({ email })
-    if (phoneNumber) orConditions.push({ phoneNumber })
+  const orConditions: { email?: string; phoneNumber?: string }[] = []
 
-    // Find matching contacts
-    const matches: Contact[] =
-      orConditions.length > 0
-        ? await tx.contact.findMany({
-            where: {
-              deletedAt: null,
-              OR: orConditions,
-            },
-          })
-        : []
+  if (email) orConditions.push({ email })
+  if (phoneNumber) orConditions.push({ phoneNumber })
 
-    // No matches → create primary
-    if (matches.length === 0) {
-      const created = await tx.contact.create({
-        data: {
-          email,
-          phoneNumber,
-          linkPrecedence: "primary",
-        },
-      })
+  // 1️⃣ Find matching contacts
+  const matches: Contact[] =
+    orConditions.length > 0
+      ? await prisma.contact.findMany({
+          where: {
+            deletedAt: null,
+            OR: orConditions,
+          },
+        })
+      : []
 
-      return buildResponse(created.id, [created])
-    }
-
-    // Fetch cluster (matches + their linked contacts)
-    const matchIds = matches.map((m) => m.id)
-
-    const cluster: Contact[] = await tx.contact.findMany({
-      where: {
-        deletedAt: null,
-        OR: [
-          { id: { in: matchIds } },
-          { linkedId: { in: matchIds } },
-        ],
+  // 2️⃣ No matches → create primary
+  if (matches.length === 0) {
+    const created = await prisma.contact.create({
+      data: {
+        email,
+        phoneNumber,
+        linkPrecedence: "primary",
       },
     })
 
-    const primary = resolvePrimary(cluster)
+    return buildResponse(created.id, [created])
+  }
 
-    const primaries = cluster.filter(
-      (c) => c.linkPrecedence === "primary"
-    )
+  // 3️⃣ Fetch cluster (matches + their linked contacts)
+  const matchIds = matches.map((m) => m.id)
 
-    for (const p of primaries) {
-      if (p.id !== primary.id) {
-        await tx.contact.update({
-          where: { id: p.id },
-          data: {
-            linkedId: primary.id,
-            linkPrecedence: "secondary",
-          },
-        })
-      }
-    }
+  const cluster: Contact[] = await prisma.contact.findMany({
+    where: {
+      deletedAt: null,
+      OR: [
+        { id: { in: matchIds } },
+        { linkedId: { in: matchIds } },
+      ],
+    },
+  })
 
-    // Insert secondary if new information present
-    const existingEmails = new Set(
-      cluster
-        .map((c) => c.email)
-        .filter((e): e is string => Boolean(e))
-    )
+  const primary = resolvePrimary(cluster)
 
-    const existingPhones = new Set(
-      cluster
-        .map((c) => c.phoneNumber)
-        .filter((p): p is string => Boolean(p))
-    )
+  // 4️⃣ Demote extra primaries
+  const primaries = cluster.filter(
+    (c) => c.linkPrecedence === "primary"
+  )
 
-    if (
-      (email && !existingEmails.has(email)) ||
-      (phoneNumber && !existingPhones.has(phoneNumber))
-    ) {
-      await tx.contact.create({
+  for (const p of primaries) {
+    if (p.id !== primary.id) {
+      await prisma.contact.update({
+        where: { id: p.id },
         data: {
-          email,
-          phoneNumber,
           linkedId: primary.id,
           linkPrecedence: "secondary",
         },
       })
     }
+  }
 
-    const finalCluster: Contact[] = await tx.contact.findMany({
-      where: {
-        deletedAt: null,
-        OR: [
-          { id: primary.id },
-          { linkedId: primary.id },
-        ],
+  // 5️⃣ Insert secondary if new information present
+  const existingEmails = new Set(
+    cluster
+      .map((c) => c.email)
+      .filter((e): e is string => Boolean(e))
+  )
+
+  const existingPhones = new Set(
+    cluster
+      .map((c) => c.phoneNumber)
+      .filter((p): p is string => Boolean(p))
+  )
+
+  if (
+    (email && !existingEmails.has(email)) ||
+    (phoneNumber && !existingPhones.has(phoneNumber))
+  ) {
+    await prisma.contact.create({
+      data: {
+        email,
+        phoneNumber,
+        linkedId: primary.id,
+        linkPrecedence: "secondary",
       },
-      orderBy: { createdAt: "asc" },
     })
+  }
 
-    return buildResponse(primary.id, finalCluster)
+  // 6️⃣ Fetch final cluster
+  const finalCluster: Contact[] = await prisma.contact.findMany({
+    where: {
+      deletedAt: null,
+      OR: [
+        { id: primary.id },
+        { linkedId: primary.id },
+      ],
+    },
+    orderBy: { createdAt: "asc" },
   })
+
+  return buildResponse(primary.id, finalCluster)
 }
 
 function resolvePrimary(cluster: Contact[]): Contact {
